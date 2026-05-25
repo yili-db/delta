@@ -20,10 +20,11 @@ import io.delta.spark.internal.v2.catalog.DeltaV2Table
 import io.delta.spark.internal.v2.read.changelog.DeltaChangelog
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogInfo, Identifier, TableCatalog}
+import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, Identifier, TableCatalog}
 import org.apache.spark.sql.connector.catalog.ChangelogRange.{TimestampRange, UnboundedRange, VersionRange}
 import org.apache.spark.sql.delta.DeltaErrors
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
  * Mixed into a [[TableCatalog]] implementation to add Auto-CDF support. Provides the
@@ -46,12 +47,15 @@ import org.apache.spark.sql.delta.sources.DeltaSQLConf
  */
 trait ChangelogSupport extends TableCatalog {
 
-  override def loadChangelog(ident: Identifier, changelogInfo: ChangelogInfo): Changelog = {
+  override def loadChangelog(
+      ident: Identifier,
+      changelogContext: ChangelogContext,
+      options: CaseInsensitiveStringMap): Changelog = {
     val spark = SparkSession.active
     if (!spark.sessionState.conf.getConf(DeltaSQLConf.DELTA_CHANGELOG_V2_ENABLED)) {
       // Feature gated off: fall back to the parent's default, which surfaces
       // UNSUPPORTED_FEATURE.CHANGE_DATA_CAPTURE to the user.
-      return super.loadChangelog(ident, changelogInfo)
+      return super.loadChangelog(ident, changelogContext, options)
     }
     val sparkTable = loadTable(ident) match {
       case st: DeltaV2Table => st
@@ -60,7 +64,7 @@ trait ChangelogSupport extends TableCatalog {
         // hood) keep going through the legacy CDF path that DeltaCatalog already exposes.
         DeltaErrors.throwChangelogRequiresV2Table(ident.toString, other.getClass.getName)
     }
-    val (startVersion, endVersion) = resolveRange(sparkTable, changelogInfo.range())
+    val (startVersion, endVersion) = resolveRange(sparkTable, changelogContext.range())
     new DeltaChangelog(ident.name(), sparkTable, startVersion, endVersion)
   }
 
